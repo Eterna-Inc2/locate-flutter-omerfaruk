@@ -3,6 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:provider/provider.dart';
 import '../providers/device_provider.dart';
 import '../models/device.dart';
+import '../widgets/locate_header.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -22,12 +23,8 @@ class _HomeScreenState extends State<HomeScreen> {
       // Android emülatörde solda çıkan floating menu'yu gizle
       drawer: const SizedBox.shrink(),
       endDrawer: const SizedBox.shrink(),
-      appBar: AppBar(
-        automaticallyImplyLeading: false, // Sol taraftaki hamburger menü ikonunu gizle
-        title: const Text('Cihaz Takip'),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
-        centerTitle: true, // iOS ve Android'de ortalı başlık
+      appBar: LocateHeader(
+        title: 'Cihaz Takip',
         actions: [
           Consumer<DeviceProvider>(
             builder: (context, provider, child) {
@@ -168,7 +165,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   );
                   // Manuel zoom yapıldığını işaretle (sadece zoom için)
                   _isManualZoom = true;
-                  
+
                   // 3 saniye sonra otomatik takibi tekrar aktif et
                   Future.delayed(const Duration(seconds: 3), () {
                     if (mounted) {
@@ -212,7 +209,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   );
                   // Manuel zoom yapıldığını işaretle (sadece zoom için)
                   _isManualZoom = true;
-                  
+
                   // 3 saniye sonra otomatik takibi tekrar aktif et
                   Future.delayed(const Duration(seconds: 3), () {
                     if (mounted) {

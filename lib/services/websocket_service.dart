@@ -1,5 +1,6 @@
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:latlong2/latlong.dart';
+import 'package:flutter/foundation.dart';
 import '../models/device.dart';
 
 class WebSocketService {
@@ -35,7 +36,7 @@ class WebSocketService {
         baseUrl = baseUrl.substring(0, baseUrl.length - 10);
       }
 
-      print('Connecting to WebSocket: $baseUrl');
+      debugPrint('Connecting to WebSocket: $baseUrl');
 
       _socket = io.io(baseUrl, <String, dynamic>{
         'transports': ['websocket'],
@@ -46,30 +47,30 @@ class WebSocketService {
       });
 
       _socket!.onConnect((_) {
-        print('WebSocket Connected!');
+        debugPrint('WebSocket Connected!');
         _isConnected = true;
         onConnectionStatusChanged?.call('Connected');
 
         // Bağlantı kurulduktan sonra geçmiş verileri iste
-        print('WebSocket connected, requesting location history...');
+        debugPrint('WebSocket connected, requesting location history...');
         _requestLocationHistory();
       });
 
       _socket!.onDisconnect((_) {
-        print('WebSocket Disconnected!');
+        debugPrint('WebSocket Disconnected!');
         _isConnected = false;
         onConnectionStatusChanged?.call('Disconnected');
       });
 
       _socket!.onError((error) {
-        print('WebSocket Error: $error');
+        debugPrint('WebSocket Error: $error');
         _isConnected = false;
         onError?.call('Socket.IO Error: $error');
         onConnectionStatusChanged?.call('Error: $error');
       });
 
       _socket!.onConnectError((error) {
-        print('WebSocket Connect Error: $error');
+        debugPrint('WebSocket Connect Error: $error');
         onError?.call('Connect Error: $error');
       });
 
@@ -86,7 +87,7 @@ class WebSocketService {
       // Listen for location history from backend
       _socket!.on('location_history', (data) {
         try {
-          print('Received location history: $data');
+          debugPrint('Received location history: $data');
           // Bu event'i DeviceProvider'a ilet - geçmiş veriler için
           onDeviceUpdate?.call(_convertLocationHistoryToDevice(data));
         } catch (e) {
@@ -97,7 +98,7 @@ class WebSocketService {
       // Listen for location history batch from backend (tüm geçmiş veriler)
       _socket!.on('location_history_batch', (data) {
         try {
-          print('Received location history batch: ${data.length} records');
+          debugPrint('Received location history batch: ${data.length} records');
           // Tüm geçmiş verileri DeviceProvider'a ilet
           _processLocationHistoryBatch(data);
         } catch (e) {
@@ -127,7 +128,7 @@ class WebSocketService {
 
   void _requestLocationHistory() {
     if (_isConnected && _socket != null) {
-      print('Requesting location history from backend...');
+      debugPrint('Requesting location history from backend...');
       _socket!.emit('get_location_history', {
         'request': 'location_history',
         'timestamp': DateTime.now().millisecondsSinceEpoch,
@@ -138,7 +139,7 @@ class WebSocketService {
   void _processLocationHistoryBatch(dynamic data) {
     try {
       if (data is List) {
-        print('Processing ${data.length} location history records');
+        debugPrint('Processing ${data.length} location history records');
 
         // Her cihaz için geçmiş verileri grupla
         final Map<String, List<Map<String, dynamic>>> deviceHistoryMap = {};
@@ -163,7 +164,7 @@ class WebSocketService {
         }
       }
     } catch (e) {
-      print('Error processing location history batch: $e');
+      debugPrint('Error processing location history batch: $e');
     }
   }
 
@@ -187,7 +188,7 @@ class WebSocketService {
         );
       }
     } catch (e) {
-      print('Error converting location history data: $e');
+              debugPrint('Error converting location history data: $e');
     }
 
     // Hata durumunda varsayılan device döndür

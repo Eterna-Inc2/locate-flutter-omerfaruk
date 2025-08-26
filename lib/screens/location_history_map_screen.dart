@@ -4,9 +4,11 @@ import 'package:provider/provider.dart';
 import 'package:latlong2/latlong.dart';
 import 'dart:math';
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import '../models/device.dart';
 import '../providers/device_provider.dart';
 import '../models/location_history.dart';
+import '../widgets/locate_header.dart';
 
 class LocationHistoryMapScreen extends StatefulWidget {
   final Device device;
@@ -75,28 +77,20 @@ class _LocationHistoryMapScreenState extends State<LocationHistoryMapScreen> {
       backgroundColor: Colors.grey[50],
       // Android emülatörde solda çıkan floating menu'yu gizle
       // drawer ve endDrawer kaldırıldı - iOS'taki gibi sadece geri ikonu olsun
-      appBar: AppBar(
-        automaticallyImplyLeading: true, // Sol tarafta geri ikonu göster
-        title: Consumer<DeviceProvider>(
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(kToolbarHeight + 20),
+        child: Consumer<DeviceProvider>(
           builder: (context, provider, child) {
             final currentDevice = provider.devices.firstWhere(
               (d) => d.id == widget.device.id,
               orElse: () => widget.device,
             );
-            return Text(
-              '${currentDevice.name} - Konum Geçmişi',
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 18),
+            return LocateHeader(
+              title: '${currentDevice.name} - Konum Geçmişi',
+              showBackButton: true,
             );
           },
         ),
-        backgroundColor: Colors.blue[600],
-        foregroundColor: Colors.white,
-        centerTitle: true,
-        elevation: 0,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(bottom: Radius.circular(20)),
-        ),
-        // Actions listesi tamamen kaldırıldı - sağda hiçbir ikon yok
       ),
       body: Consumer<DeviceProvider>(
         builder: (context, provider, child) {
@@ -296,46 +290,24 @@ class _LocationHistoryMapScreenState extends State<LocationHistoryMapScreen> {
                               userAgentPackageName: 'com.example.takip_fl',
                             ),
 
-                            // CANLI konum marker'ı
+                            // Cihaz marker'ı (mevcut konum)
                             MarkerLayer(
-                              key: ValueKey('live_${currentDevice.id}_$lastTs'),
                               markers: [
                                 Marker(
                                   point: currentDevice.currentLocation,
-                                  width: 60,
-                                  height: 60,
+                                  width: 40,
+                                  height: 40,
                                   child: Container(
                                     decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        colors: currentDevice.isOnline
-                                            ? [
-                                                Colors.green[400]!,
-                                                Colors.green[600]!,
-                                              ]
-                                            : [
-                                                Colors.red[400]!,
-                                                Colors.red[600]!,
-                                              ],
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
-                                      ),
+                                      color: Colors.blue,
                                       shape: BoxShape.circle,
                                       border: Border.all(
                                         color: Colors.white,
-                                        width: 4,
+                                        width: 2,
                                       ),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withValues(
-                                            alpha: 0.4,
-                                          ),
-                                          blurRadius: 12,
-                                          offset: const Offset(0, 6),
-                                        ),
-                                      ],
                                     ),
                                     child: const Icon(
-                                      Icons.my_location,
+                                      Icons.location_on,
                                       color: Colors.white,
                                       size: 24,
                                     ),
@@ -347,89 +319,34 @@ class _LocationHistoryMapScreenState extends State<LocationHistoryMapScreen> {
                             // Rota (geçmişten polyline)
                             if (filteredHistory.length > 1)
                               PolylineLayer(
-                                key: ValueKey(
-                                  'poly_${filteredHistory.length}_$lastTs',
-                                ),
                                 polylines: [
                                   Polyline(
                                     points: filteredHistory
                                         .map((h) => h.location)
-                                        .toList(growable: false),
-                                    strokeWidth: 4,
+                                        .toList(),
+                                    strokeWidth: 3,
                                     color: Colors.blue[600]!,
                                   ),
                                 ],
                               ),
 
-                            // Geçmiş noktaları marker’ları
+                            // Geçmiş noktalar (küçük marker'lar)
                             MarkerLayer(
-                              key: ValueKey(
-                                'marks_${filteredHistory.length}_$lastTs',
-                              ),
                               markers: filteredHistory
-                                  .asMap()
-                                  .entries
-                                  .map((entry) {
-                                    final index = entry.key;
-                                    final loc = entry.value;
-
-                                    final isRecent =
-                                        _useLiveWindow &&
-                                        DateTime.now()
-                                                .difference(loc.timestamp)
-                                                .inMinutes <
-                                            2;
-
-                                    return Marker(
-                                      point: loc.location,
-                                      width: isRecent ? 40 : 35,
-                                      height: isRecent ? 40 : 35,
+                                  .map(
+                                    (history) => Marker(
+                                      point: history.location,
+                                      width: 8,
+                                      height: 8,
                                       child: Container(
                                         decoration: BoxDecoration(
-                                          gradient: LinearGradient(
-                                            colors: isRecent
-                                                ? [
-                                                    Colors.blue[400]!,
-                                                    Colors.blue[600]!,
-                                                  ]
-                                                : [
-                                                    Colors.blue[400]!,
-                                                    Colors.blue[600]!,
-                                                  ],
-                                            begin: Alignment.topLeft,
-                                            end: Alignment.bottomRight,
-                                          ),
+                                          color: Colors.blue[400],
                                           shape: BoxShape.circle,
-                                          border: Border.all(
-                                            color: Colors.white,
-                                            width: isRecent ? 3 : 2,
-                                          ),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color:
-                                                  (isRecent
-                                                          ? Colors.blue
-                                                          : Colors.blue)
-                                                      .withValues(alpha: 0.4),
-                                              blurRadius: isRecent ? 8 : 6,
-                                              offset: const Offset(0, 2),
-                                            ),
-                                          ],
-                                        ),
-                                        child: Center(
-                                          child: Text(
-                                            '${index + 1}',
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
                                         ),
                                       ),
-                                    );
-                                  })
-                                  .toList(growable: false),
+                                    ),
+                                  )
+                                  .toList(),
                             ),
                           ],
                         );
@@ -466,20 +383,14 @@ class _LocationHistoryMapScreenState extends State<LocationHistoryMapScreen> {
               child: InkWell(
                 borderRadius: BorderRadius.circular(12),
                 onTap: () {
-                  try {
-                    if (_mapController.camera.zoom < 18.0) {
-                      _mapController.move(
-                        _mapController.camera.center,
-                        _mapController.camera.zoom + 1.0,
-                      );
-                      _isManualZoom = true;
-                    }
-                  } catch (_) {}
+                  final currentZoom = _mapController.camera.zoom;
+                  final newZoom = (currentZoom + 1).clamp(3.0, 18.0);
+                  _mapController.move(_mapController.camera.center, newZoom);
                 },
                 child: const SizedBox(
                   width: 44,
                   height: 44,
-                  child: Icon(Icons.add, color: Colors.grey, size: 20),
+                  child: Icon(Icons.zoom_in, color: Colors.blue, size: 20),
                 ),
               ),
             ),
@@ -503,25 +414,19 @@ class _LocationHistoryMapScreenState extends State<LocationHistoryMapScreen> {
               child: InkWell(
                 borderRadius: BorderRadius.circular(12),
                 onTap: () {
-                  try {
-                    if (_mapController.camera.zoom > 3.0) {
-                      _mapController.move(
-                        _mapController.camera.center,
-                        _mapController.camera.zoom - 1.0,
-                      );
-                      _isManualZoom = true;
-                    }
-                  } catch (_) {}
+                  final currentZoom = _mapController.camera.zoom;
+                  final newZoom = (currentZoom - 1).clamp(3.0, 18.0);
+                  _mapController.move(_mapController.camera.center, newZoom);
                 },
                 child: const SizedBox(
                   width: 44,
                   height: 44,
-                  child: Icon(Icons.remove, color: Colors.grey, size: 20),
+                  child: Icon(Icons.zoom_out, color: Colors.blue, size: 20),
                 ),
               ),
             ),
           ),
-          // Ortala
+          // Center on device
           Container(
             decoration: BoxDecoration(
               color: Colors.white,
@@ -539,17 +444,12 @@ class _LocationHistoryMapScreenState extends State<LocationHistoryMapScreen> {
               child: InkWell(
                 borderRadius: BorderRadius.circular(12),
                 onTap: () {
-                  _isManualZoom = false;
-                  _centerMap(context);
+                  _centerOnLatestLocation();
                 },
                 child: const SizedBox(
                   width: 44,
                   height: 44,
-                  child: Icon(
-                    Icons.center_focus_strong,
-                    color: Colors.grey,
-                    size: 20,
-                  ),
+                  child: Icon(Icons.my_location, color: Colors.blue, size: 20),
                 ),
               ),
             ),
@@ -750,6 +650,7 @@ class _LocationHistoryMapScreenState extends State<LocationHistoryMapScreen> {
   }
 
   void _followCurrentLocation() {
+    if (!mounted) return;
     if (_isManualZoom) return;
 
     final provider = context.read<DeviceProvider>();
@@ -758,18 +659,25 @@ class _LocationHistoryMapScreenState extends State<LocationHistoryMapScreen> {
     if (history.isNotEmpty) {
       final latestLocation = history.last.location;
       final currentZoom = _mapController.camera.zoom;
-      _mapController.move(latestLocation, currentZoom);
+      try {
+        if (!mounted) return;
+        _mapController.move(latestLocation, currentZoom);
+      } catch (_) {}
     }
   }
 
   void _centerMap(BuildContext context) {
+    if (!mounted) return;
     final provider = context.read<DeviceProvider>();
     final history = provider.getLocationHistory(widget.device.id);
 
     if (history.isNotEmpty) {
       final center = _calculateCenter(history);
       final zoom = _calculateZoom(history);
-      _mapController.move(center, zoom);
+      try {
+        if (!mounted) return;
+        _mapController.move(center, zoom);
+      } catch (_) {}
       _isManualZoom = false;
     }
   }
@@ -807,6 +715,7 @@ class _LocationHistoryMapScreenState extends State<LocationHistoryMapScreen> {
   }
 
   void _centerOnLatestLocation() {
+    if (!mounted) return;
     if (_isManualZoom) return;
 
     final provider = context.read<DeviceProvider>();
@@ -814,11 +723,15 @@ class _LocationHistoryMapScreenState extends State<LocationHistoryMapScreen> {
 
     if (history.isNotEmpty) {
       final latestLocation = history.last.location;
-      _mapController.move(latestLocation, 14.0);
+      try {
+        if (!mounted) return;
+        _mapController.move(latestLocation, 14.0);
+      } catch (_) {}
     }
   }
 
   void _centerOnFilteredHistory() {
+    if (!mounted) return;
     if (_isManualZoom) return;
 
     final provider = context.read<DeviceProvider>();
@@ -827,7 +740,10 @@ class _LocationHistoryMapScreenState extends State<LocationHistoryMapScreen> {
     if (filtered.isNotEmpty) {
       final center = _calculateCenter(filtered);
       final zoom = _calculateZoom(filtered);
-      _mapController.move(center, zoom);
+      try {
+        if (!mounted) return;
+        _mapController.move(center, zoom);
+      } catch (_) {}
     }
   }
 

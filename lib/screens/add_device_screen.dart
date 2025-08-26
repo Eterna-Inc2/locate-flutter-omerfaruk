@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:latlong2/latlong.dart';
 import '../providers/device_provider.dart';
 import '../models/device.dart';
+import '../widgets/locate_header.dart';
 
 class AddDeviceScreen extends StatefulWidget {
   const AddDeviceScreen({super.key});
@@ -26,11 +27,9 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Yeni Cihaz Ekle'),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
-        centerTitle: true, // iOS ve Android'de ortalı başlık
+      appBar: const LocateHeader(
+        title: 'Yeni Cihaz Ekle',
+        showBackButton: true,
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -100,14 +99,6 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
       );
 
       context.read<DeviceProvider>().addDevice(device);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${device.name} başarıyla eklendi'),
-          backgroundColor: Colors.green,
-        ),
-      );
-
       Navigator.pop(context);
     }
   }

@@ -1,8 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'package:latlong2/latlong.dart';
 import 'dart:math';
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/device.dart';
 import '../models/location_history.dart';
+import '../models/safe_zone.dart';
 import '../services/websocket_service.dart';
 
 class DeviceProvider with ChangeNotifier {
@@ -10,16 +13,20 @@ class DeviceProvider with ChangeNotifier {
 
   final List<Device> _devices = [];
   final Map<String, List<LocationHistory>> _locationHistory = {};
+  final Map<String, List<SafeZone>> _safeZones = {};
+  final Map<String, bool> _isOutsideGeofence = {};
   bool _isConnected = false;
   String _connectionStatus = 'Disconnected';
 
   List<Device> get devices => _devices;
   bool get isConnected => _isConnected;
   String get connectionStatus => _connectionStatus;
+  List<SafeZone> getSafeZones(String deviceId) => _safeZones[deviceId] ?? [];
 
   DeviceProvider() {
     _setupWebSocketCallbacks();
     // _loadMockData(); // Test için mock data - KALDIRILDI
+    _loadSafeZonesFromPrefs();
   }
 
   void _setupWebSocketCallbacks() {
@@ -70,6 +77,9 @@ class DeviceProvider with ChangeNotifier {
 
     // Konum geçmişine ekle
     _addToLocationHistory(updatedDevice);
+
+    // Güvenli alan ihlali kontrolü
+    _checkGeofenceIfNeeded(updatedDevice);
 
     notifyListeners();
   }
@@ -187,6 +197,22 @@ class DeviceProvider with ChangeNotifier {
 
     // UI'ı güncelle
     notifyListeners();
+
+    // Manuel eklemelerde de geofence kontrolü
+    final device = _devices.firstWhere(
+      (d) => d.id == deviceId,
+      orElse: () => Device(
+        id: deviceId,
+        name: 'Cihaz $deviceId',
+        currentLocation: location,
+        lastUpdate: timestamp,
+        isOnline: true,
+        status: 'Online',
+      ),
+    );
+    _checkGeofenceIfNeeded(
+      device.copyWith(currentLocation: location, lastUpdate: timestamp),
+    );
   }
 
   // Tarih aralığına göre konum geçmişi filtreleme
@@ -328,4 +354,112 @@ class DeviceProvider with ChangeNotifier {
     _webSocketService.disconnect();
     super.dispose();
   }
+
+  // ========== Güvenli Alan Yönetimi ==========
+
+  static const String _prefsSafeZonesKey = 'safe_zones_json_v2';
+
+  Future<void> addSafeZone(String deviceId, SafeZone zone) async {
+    _safeZones.putIfAbsent(deviceId, () => []);
+    _safeZones[deviceId]!.add(zone);
+    _isOutsideGeofence[deviceId] = false;
+    notifyListeners();
+    await _saveSafeZonesToPrefs();
+  }
+
+  Future<void> removeAllSafeZones(String deviceId) async {
+    _safeZones.remove(deviceId);
+    _isOutsideGeofence.remove(deviceId);
+    notifyListeners();
+    await _saveSafeZonesToPrefs();
+  }
+
+  Future<void> clearAllSafeZones() async {
+    _safeZones.clear();
+    _isOutsideGeofence.clear();
+    notifyListeners();
+    await _saveSafeZonesToPrefs();
+  }
+
+  Future<void> _saveSafeZonesToPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final mapToStore = <String, dynamic>{};
+      _safeZones.forEach((deviceId, zones) {
+        mapToStore[deviceId] = zones.map((z) => z.toJson()).toList();
+      });
+      final jsonString = jsonEncode(mapToStore);
+      await prefs.setString(_prefsSafeZonesKey, jsonString);
+    } catch (_) {
+      // sessiz geç
+    }
+  }
+
+  Future<void> _loadSafeZonesFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_prefsSafeZonesKey);
+      if (raw == null || raw.isEmpty) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) {
+        decoded.forEach((deviceId, value) {
+          if (value is List) {
+            _safeZones[deviceId] = value
+                .whereType<Map<String, dynamic>>()
+                .map((m) => SafeZone.fromJson(m))
+                .toList();
+          } else if (value is Map<String, dynamic>) {
+            // Eski sürüm migrasyonu: tek alanı listeye çevir
+            _safeZones[deviceId] = [SafeZone.fromJson(value)];
+          }
+        });
+        notifyListeners();
+      }
+    } catch (_) {
+      // sessiz geç
+    }
+  }
+
+  void _checkGeofenceIfNeeded(Device device) {
+    final zones = _safeZones[device.id] ?? [];
+    if (zones.isEmpty) return;
+
+    // İçeride sayılmak için en az bir güvenli alanın içinde olmak yeterli
+    bool isInsideAny = false;
+    double lastDistance = 0;
+    double lastRadius = 0;
+    for (final z in zones) {
+      final d = const Distance().as(
+        LengthUnit.Meter,
+        LatLng(z.centerLat, z.centerLng),
+        device.currentLocation,
+      );
+      lastDistance = d;
+      lastRadius = z.radiusMeters;
+      if (d <= z.radiusMeters) {
+        isInsideAny = true;
+        break;
+      }
+    }
+    final isOutside = !isInsideAny;
+    final wasOutside = _isOutsideGeofence[device.id] ?? false;
+    _isOutsideGeofence[device.id] = isOutside;
+
+    if (isOutside && !wasOutside) {
+      _onGeofenceBreach?.call(device.id, lastDistance, lastRadius);
+    } else if (!isOutside && wasOutside) {
+      _onGeofenceEnter?.call(device.id, lastDistance, lastRadius);
+    }
+  }
+
+  // Dışarıdan bağlanabilecek basit ihlal callback'i (UI veya bildirim servisi bağlar)
+  void Function(String deviceId, double distanceMeters, double radiusMeters)?
+  _onGeofenceBreach;
+  set onGeofenceBreach(void Function(String, double, double)? handler) =>
+      _onGeofenceBreach = handler;
+
+  void Function(String deviceId, double distanceMeters, double radiusMeters)?
+  _onGeofenceEnter;
+  set onGeofenceEnter(void Function(String, double, double)? handler) =>
+      _onGeofenceEnter = handler;
 }

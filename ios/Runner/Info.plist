@@ -45,5 +45,22 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- iOS konum izinleri (gerekirse) -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Harita ve güvenli alan için konum iznine ihtiyaç var.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Güvenli alan uyarıları için konum iznine ihtiyaç var.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>Güvenli alan uyarıları için konum iznine ihtiyaç var.</string>
+	<!-- iOS bildirim izinleri banner/sound için kullanıcı onayı gerekir -->
+	<key>FirebaseAppDelegateProxyEnabled</key>
+	<false/>
+	<!-- Debug VM Service için Local Network izni ve Bonjour servis beyanı (iOS 14+) -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Geliştirme sırasında yerel ağ üzerinde hata ayıklama servisi yayınlamak için gereklidir.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_dartVmService._tcp</string>
+	</array>
 </dict>
 </plist>

@@ -4,11 +4,11 @@ import 'package:provider/provider.dart';
 import 'package:latlong2/latlong.dart';
 import 'dart:math';
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import '../models/device.dart';
 import '../providers/device_provider.dart';
 import '../models/location_history.dart';
 import '../widgets/locate_header.dart';
+import '../models/safe_zone.dart';
 
 class LocationHistoryMapScreen extends StatefulWidget {
   final Device device;
@@ -32,6 +32,7 @@ class _LocationHistoryMapScreenState extends State<LocationHistoryMapScreen> {
   final bool _isRealTimeTracking = true; // Sayfa açıldığında canlı takip aktif
   bool _isManualZoom = false; // Manuel zoom yapılınca otomatik takip durur
   Timer? _realTimeTimer;
+  bool _isSelectingSafeZoneCenter = false;
 
   @override
   void initState() {
@@ -88,6 +89,51 @@ class _LocationHistoryMapScreenState extends State<LocationHistoryMapScreen> {
             return LocateHeader(
               title: '${currentDevice.name} - Konum Geçmişi',
               showBackButton: true,
+              actions: [
+                if (provider.getSafeZones(widget.device.id).isEmpty)
+                  TextButton.icon(
+                    onPressed: () {
+                      setState(() => _isSelectingSafeZoneCenter = true);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Haritaya dokunarak merkez seçin'),
+                          duration: Duration(seconds: 3),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.add_location_alt),
+                    label: const Text('Güvenli Alan'),
+                  )
+                else
+                  TextButton.icon(
+                    onPressed: () async {
+                      final confirm = await showDialog<bool>(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: const Text('Güvenli Alanı Sil'),
+                          content: const Text('Kaldırılsın mı?'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(ctx, false),
+                              child: const Text('Vazgeç'),
+                            ),
+                            ElevatedButton(
+                              onPressed: () => Navigator.pop(ctx, true),
+                              child: const Text('Sil'),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (confirm == true && mounted) {
+                        await context.read<DeviceProvider>().removeAllSafeZones(
+                          widget.device.id,
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.delete_outline),
+                    label: const Text('Güvenli Alanı Sil'),
+                  ),
+              ],
             );
           },
         ),
@@ -95,6 +141,8 @@ class _LocationHistoryMapScreenState extends State<LocationHistoryMapScreen> {
       body: Consumer<DeviceProvider>(
         builder: (context, provider, child) {
           final filteredHistory = _getFilteredHistory(provider);
+          final zones = provider.getSafeZones(widget.device.id);
+          final safeZone = zones.isNotEmpty ? zones.first : null;
 
           return Column(
             children: [
@@ -146,6 +194,35 @@ class _LocationHistoryMapScreenState extends State<LocationHistoryMapScreen> {
                           ),
                         ),
                         const Spacer(),
+                        if (safeZone != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.green[50],
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.green[200]!),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.shield_moon,
+                                  size: 16,
+                                  color: Colors.green,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Güvenli Alan: ${(safeZone.radiusMeters / 1000).toStringAsFixed(1)} km',
+                                  style: const TextStyle(
+                                    color: Colors.green,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         if (!_useLiveWindow)
                           TextButton.icon(
                             onPressed: () {
@@ -261,94 +338,128 @@ class _LocationHistoryMapScreenState extends State<LocationHistoryMapScreen> {
                           );
                         }
 
-                        final lastTs = filteredHistory.isNotEmpty
-                            ? filteredHistory
-                                  .last
-                                  .timestamp
-                                  .millisecondsSinceEpoch
-                            : 0;
+                        // keep map reactivity but no-op var removed (lastTs)
 
-                        return FlutterMap(
-                          mapController: _mapController,
-                          options: MapOptions(
-                            initialCenter: currentDevice.currentLocation,
-                            initialZoom: 14.0,
-                            maxZoom: 18.0,
-                            minZoom: 3.0,
-                            onMapEvent: _isRealTimeTracking
-                                ? _onMapEvent
-                                : null,
-                            interactionOptions: const InteractionOptions(
-                              enableScrollWheel: true,
-                              enableMultiFingerGestureRace: true,
+                        return Listener(
+                          onPointerDown: (_) {},
+                          child: FlutterMap(
+                            mapController: _mapController,
+                            options: MapOptions(
+                              initialCenter: currentDevice.currentLocation,
+                              initialZoom: 14.0,
+                              maxZoom: 18.0,
+                              minZoom: 3.0,
+                              onMapEvent: _isRealTimeTracking
+                                  ? _onMapEvent
+                                  : null,
+                              onTap: (tapPosition, point) async {
+                                if (!_isSelectingSafeZoneCenter) return;
+                                setState(
+                                  () => _isSelectingSafeZoneCenter = false,
+                                );
+                                final radiusKm = await _askRadiusKm(context);
+                                if (radiusKm == null) return;
+                                final zone = SafeZone(
+                                  centerLat: point.latitude,
+                                  centerLng: point.longitude,
+                                  radiusMeters: radiusKm * 1000.0,
+                                );
+                                await context
+                                    .read<DeviceProvider>()
+                                    .addSafeZone(widget.device.id, zone);
+                              },
+                              interactionOptions: const InteractionOptions(
+                                enableScrollWheel: true,
+                                enableMultiFingerGestureRace: true,
+                              ),
                             ),
-                          ),
-                          children: [
-                            TileLayer(
-                              urlTemplate:
-                                  'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                              userAgentPackageName: 'com.example.takip_fl',
-                            ),
+                            children: [
+                              TileLayer(
+                                urlTemplate:
+                                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                userAgentPackageName: 'com.example.takip_fl',
+                              ),
 
-                            // Cihaz marker'ı (mevcut konum)
-                            MarkerLayer(
-                              markers: [
-                                Marker(
-                                  point: currentDevice.currentLocation,
-                                  width: 40,
-                                  height: 40,
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      color: Colors.blue,
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
+                              // Cihaz marker'ı (mevcut konum)
+                              MarkerLayer(
+                                markers: [
+                                  Marker(
+                                    point: currentDevice.currentLocation,
+                                    width: 40,
+                                    height: 40,
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: Colors.white,
+                                          width: 2,
+                                        ),
+                                      ),
+                                      child: const Icon(
+                                        Icons.location_on,
                                         color: Colors.white,
-                                        width: 2,
+                                        size: 24,
                                       ),
                                     ),
-                                    child: const Icon(
-                                      Icons.location_on,
-                                      color: Colors.white,
-                                      size: 24,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-
-                            // Rota (geçmişten polyline)
-                            if (filteredHistory.length > 1)
-                              PolylineLayer(
-                                polylines: [
-                                  Polyline(
-                                    points: filteredHistory
-                                        .map((h) => h.location)
-                                        .toList(),
-                                    strokeWidth: 3,
-                                    color: Colors.blue[600]!,
                                   ),
                                 ],
                               ),
 
-                            // Geçmiş noktalar (küçük marker'lar)
-                            MarkerLayer(
-                              markers: filteredHistory
-                                  .map(
-                                    (history) => Marker(
-                                      point: history.location,
-                                      width: 8,
-                                      height: 8,
-                                      child: Container(
-                                        decoration: BoxDecoration(
-                                          color: Colors.blue[400],
-                                          shape: BoxShape.circle,
+                              // Rota (geçmişten polyline)
+                              if (filteredHistory.length > 1)
+                                PolylineLayer(
+                                  polylines: [
+                                    Polyline(
+                                      points: filteredHistory
+                                          .map((h) => h.location)
+                                          .toList(),
+                                      strokeWidth: 3,
+                                      color: Colors.blue[600]!,
+                                    ),
+                                  ],
+                                ),
+
+                              // Geçmiş noktalar (küçük marker'lar)
+                              MarkerLayer(
+                                markers: filteredHistory
+                                    .map(
+                                      (history) => Marker(
+                                        point: history.location,
+                                        width: 8,
+                                        height: 8,
+                                        child: Container(
+                                          decoration: BoxDecoration(
+                                            color: Colors.blue[400],
+                                            shape: BoxShape.circle,
+                                          ),
                                         ),
                                       ),
+                                    )
+                                    .toList(),
+                              ),
+
+                              // Güvenli Alan Çemberleri (tümü)
+                              CircleLayer(
+                                circles: [
+                                  for (final zone in provider.getSafeZones(
+                                    widget.device.id,
+                                  ))
+                                    CircleMarker(
+                                      point: LatLng(
+                                        zone.centerLat,
+                                        zone.centerLng,
+                                      ),
+                                      color: Colors.green.withOpacity(0.15),
+                                      borderColor: Colors.green,
+                                      borderStrokeWidth: 2,
+                                      useRadiusInMeter: true,
+                                      radius: zone.radiusMeters,
                                     ),
-                                  )
-                                  .toList(),
-                            ),
-                          ],
+                                ],
+                              ),
+                            ],
+                          ),
                         );
                       },
                     ),
@@ -453,6 +564,38 @@ class _LocationHistoryMapScreenState extends State<LocationHistoryMapScreen> {
                 ),
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<double?> _askRadiusKm(BuildContext context) async {
+    final controller = TextEditingController(text: '1.0');
+    return showDialog<double>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Yarıçap (km)'),
+        content: TextField(
+          controller: controller,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(hintText: 'Örn: 1.5'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('İptal'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final val = double.tryParse(controller.text.replaceAll(',', '.'));
+              if (val == null || val <= 0) {
+                Navigator.pop(ctx);
+              } else {
+                Navigator.pop(ctx, val);
+              }
+            },
+            child: const Text('Kaydet'),
           ),
         ],
       ),
@@ -666,21 +809,7 @@ class _LocationHistoryMapScreenState extends State<LocationHistoryMapScreen> {
     }
   }
 
-  void _centerMap(BuildContext context) {
-    if (!mounted) return;
-    final provider = context.read<DeviceProvider>();
-    final history = provider.getLocationHistory(widget.device.id);
-
-    if (history.isNotEmpty) {
-      final center = _calculateCenter(history);
-      final zoom = _calculateZoom(history);
-      try {
-        if (!mounted) return;
-        _mapController.move(center, zoom);
-      } catch (_) {}
-      _isManualZoom = false;
-    }
-  }
+  // _centerMap kaldırıldı (kullanım yok)
 
   LatLng _calculateCenter(List<LocationHistory> history) {
     double totalLat = 0, totalLng = 0;

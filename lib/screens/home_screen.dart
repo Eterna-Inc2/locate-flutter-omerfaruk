@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:provider/provider.dart';
 import '../providers/device_provider.dart';
+import 'package:latlong2/latlong.dart';
 import '../models/device.dart';
 import '../widgets/locate_header.dart';
+import '../models/safe_zone.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -16,6 +18,8 @@ class _HomeScreenState extends State<HomeScreen> {
   final MapController _mapController = MapController();
   bool _autoFollow = true; // Otomatik takip aktif
   bool _isManualZoom = false; // Manuel zoom yapıldığında otomatik zoom'u durdur
+  bool _isSelectingSafeZoneCenter = false;
+  String? _selectedDeviceIdForZone;
 
   @override
   Widget build(BuildContext context) {
@@ -41,6 +45,64 @@ class _HomeScreenState extends State<HomeScreen> {
                     Text(
                       provider.isConnected ? 'Bağlı' : 'Bağlı Değil',
                       style: const TextStyle(fontSize: 12),
+                    ),
+                    const SizedBox(width: 12),
+                    PopupMenuButton<String>(
+                      onSelected: (value) async {
+                        if (value == 'add_zone') {
+                          if (provider.devices.isEmpty) return;
+                          // Varsayılan ilk cihazı seçelim (geliştirilebilir)
+                          setState(() {
+                            _selectedDeviceIdForZone =
+                                provider.devices.first.id;
+                            _isSelectingSafeZoneCenter = true;
+                          });
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Haritaya dokunarak merkez seçin'),
+                              duration: Duration(seconds: 3),
+                            ),
+                          );
+                        } else if (value == 'remove_zone') {
+                          if (provider.devices.isEmpty) return;
+                          final deviceId = provider.devices.first.id;
+                          await provider.removeAllSafeZones(deviceId);
+                        } else if (value == 'clear_all_zones') {
+                          await provider.clearAllSafeZones();
+                        }
+                      },
+                      itemBuilder: (ctx) => [
+                        const PopupMenuItem(
+                          value: 'add_zone',
+                          child: Row(
+                            children: [
+                              Icon(Icons.add_location_alt_outlined),
+                              SizedBox(width: 8),
+                              Text('Güvenli Alan Ekle'),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'remove_zone',
+                          child: Row(
+                            children: [
+                              Icon(Icons.delete_outline),
+                              SizedBox(width: 8),
+                              Text('Güvenli Alanı Sil'),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'clear_all_zones',
+                          child: Row(
+                            children: [
+                              Icon(Icons.delete_sweep_outlined),
+                              SizedBox(width: 8),
+                              Text('Tüm Güvenli Alanları Temizle'),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -71,6 +133,24 @@ class _HomeScreenState extends State<HomeScreen> {
                   maxZoom: 18.0,
                   minZoom: 3.0,
                   onMapEvent: _autoFollow ? _onMapEvent : null,
+                  onTap: (tapPosition, point) async {
+                    if (!_isSelectingSafeZoneCenter ||
+                        _selectedDeviceIdForZone == null)
+                      return;
+                    setState(() => _isSelectingSafeZoneCenter = false);
+                    final radiusKm = await _askRadiusKm(context);
+                    if (radiusKm == null) return;
+                    final zone = SafeZone(
+                      centerLat: point.latitude,
+                      centerLng: point.longitude,
+                      radiusMeters: radiusKm * 1000.0,
+                    );
+                    await context.read<DeviceProvider>().addSafeZone(
+                      _selectedDeviceIdForZone!,
+                      zone,
+                    );
+                    setState(() => _selectedDeviceIdForZone = null);
+                  },
                 ),
                 children: [
                   TileLayer(
@@ -81,6 +161,21 @@ class _HomeScreenState extends State<HomeScreen> {
                   // Cihaz markerları
                   ...provider.devices.map(
                     (device) => _buildDeviceMarker(device),
+                  ),
+                  // Güvenli alan çemberleri (tüm cihazlar için)
+                  CircleLayer(
+                    circles: [
+                      for (final device in provider.devices)
+                        for (final zone in provider.getSafeZones(device.id))
+                          CircleMarker(
+                            point: LatLng(zone.centerLat, zone.centerLng),
+                            color: Colors.green.withOpacity(0.15),
+                            borderColor: Colors.green,
+                            borderStrokeWidth: 2,
+                            useRadiusInMeter: true,
+                            radius: zone.radiusMeters,
+                          ),
+                    ],
                   ),
                 ],
               ),
@@ -432,5 +527,37 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String _formatDateTime(DateTime dateTime) {
     return '${dateTime.day}/${dateTime.month}/${dateTime.year} ${dateTime.hour}:${dateTime.minute}';
+  }
+
+  Future<double?> _askRadiusKm(BuildContext context) async {
+    final controller = TextEditingController(text: '1.0');
+    return showDialog<double>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Yarıçap (km)'),
+        content: TextField(
+          controller: controller,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(hintText: 'Örn: 1.5'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('İptal'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final val = double.tryParse(controller.text.replaceAll(',', '.'));
+              if (val == null || val <= 0) {
+                Navigator.pop(ctx);
+              } else {
+                Navigator.pop(ctx, val);
+              }
+            },
+            child: const Text('Kaydet'),
+          ),
+        ],
+      ),
+    );
   }
 }

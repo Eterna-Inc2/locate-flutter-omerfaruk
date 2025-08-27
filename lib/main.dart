@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'providers/device_provider.dart';
+import 'services/notification_service.dart';
 import 'screens/home_screen.dart';
 import 'screens/device_list_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await NotificationService().init();
   runApp(const MyApp());
 }
 
@@ -78,6 +80,22 @@ class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
 
   final List<Widget> _screens = [const HomeScreen(), const DeviceListScreen()];
+
+  @override
+  void initState() {
+    super.initState();
+    // Geofence ihlalinde bildirim gönder
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final provider = context.read<DeviceProvider>();
+      provider.onGeofenceBreach = (deviceId, distance, radius) {
+        NotificationService().showGeofenceBreach(deviceId, distance, radius);
+      };
+      provider.onGeofenceEnter = (deviceId, distance, radius) {
+        NotificationService().showGeofenceEnter(deviceId, distance, radius);
+      };
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
